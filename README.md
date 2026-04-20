@@ -10,15 +10,62 @@ is shared or mutated.
 
 ## Install
 
-```bash
-make build
+### Verified one-liner (recommended)
+
+```sh
+curl -fsSL https://github.com/stefanfaur/gitswitch/releases/download/v0.1.0/install.sh | sh
+```
+
+The installer verifies a minisign signature over SHA256SUMS before
+writing the binary. It will prompt to install `minisign` via your
+package manager if missing.
+
+For an always-latest install (tracks `main`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/stefanfaur/gitswitch/main/install.sh | sh
+```
+
+Non-interactive / CI:
+
+```sh
+curl -fsSL <url> \
+  | ASSUME_YES=1 GITSWITCH_INSTALL_MINISIGN=1 INSTALL_DIR=~/.local/bin sh
+```
+
+Supported env: `ASSUME_YES`, `GITSWITCH_INSTALL_MINISIGN`, `INSTALL_DIR`,
+`GITSWITCH_VERSION`, `FORCE`.
+
+### From source
+
+```sh
+git clone https://github.com/stefanfaur/gitswitch.git
+cd gitswitch && make build
 sudo install -m 0755 gitswitch /usr/local/bin/gitswitch
 ```
 
-Or:
+### `go install`
 
-```bash
+```sh
 go install github.com/stefanfaur/gitswitch/cmd/gitswitch@latest
+```
+
+Note: `go install` does not verify a signature. Prefer the one-liner.
+
+## Verifying a release manually
+
+```sh
+TAG=v0.1.0
+BASE=https://github.com/stefanfaur/gitswitch/releases/download/$TAG
+curl -fsSLO $BASE/SHA256SUMS
+curl -fsSLO $BASE/SHA256SUMS.minisig
+curl -fsSLO $BASE/install.sh
+sha256sum install.sh          # compare against the hash in the Release body
+minisign -Vm SHA256SUMS -P "$(curl -fsSL \
+  https://raw.githubusercontent.com/stefanfaur/gitswitch/$TAG/minisign.pub \
+  | sed -n 2p)"
+# then:
+sh install.sh
 ```
 
 ## Quick start
