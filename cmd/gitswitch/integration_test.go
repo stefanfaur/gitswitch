@@ -74,3 +74,96 @@ func TestAddListWhoamiRm(t *testing.T) {
 		t.Fatalf("alice still listed after rm: %q", out)
 	}
 }
+
+func TestUseExecsShellWithEnv(t *testing.T) {
+	home := t.TempDir()
+	stdin := "Alice Example\nalice@example.com\ngtea_xyz\nhunter2\nhunter2\n"
+	if _, _, code := run(t, home, stdin, "add", "alice"); code != 0 {
+		t.Fatal("setup add failed")
+	}
+	shell := filepath.Join(t.TempDir(), "fakeshell.sh")
+	script := "#!/bin/sh\nenv | grep -E '^(GIT_|GITSWITCH_|LC_MESSAGES=)' | sort\n"
+	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "use", "alice")
+	cmd.Env = append(os.Environ(),
+		"XDG_CONFIG_HOME="+home,
+		"HOME="+home,
+		"SHELL="+shell,
+	)
+	cmd.Stdin = strings.NewReader("hunter2\n")
+	var out, errOut bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("use: %v err=%s", err, errOut.String())
+	}
+	s := out.String()
+	for _, want := range []string{
+		"GIT_AUTHOR_NAME=Alice Example",
+		"GIT_AUTHOR_EMAIL=alice@example.com",
+		"GIT_COMMITTER_NAME=Alice Example",
+		"GIT_COMMITTER_EMAIL=alice@example.com",
+		"GITSWITCH_USER=alice",
+		"GITSWITCH_PAT=gtea_xyz",
+		"GITSWITCH_ASKPASS=1",
+		"LC_MESSAGES=C",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in:\n%s", want, s)
+		}
+	}
+	if !strings.Contains(s, "GIT_ASKPASS=") {
+		t.Fatalf("GIT_ASKPASS missing:\n%s", s)
+	}
+}
+
+func TestUseRefusesNested(t *testing.T) {
+	home := t.TempDir()
+	stdin := "A\na@x\np\nhunter2\nhunter2\n"
+	if _, _, code := run(t, home, stdin, "add", "alice"); code != 0 {
+		t.Fatal("setup")
+	}
+	cmd := exec.Command(bin, "use", "alice")
+	cmd.Env = append(os.Environ(),
+		"XDG_CONFIG_HOME="+home, "HOME="+home, "SHELL=/bin/sh",
+		"GITSWITCH_USER=bob",
+	)
+	cmd.Stdin = strings.NewReader("hunter2\n")
+	var errOut bytes.Buffer
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("expected nesting refusal, stderr=%s", errOut.String())
+	}
+}
+
+func TestAskpassSubprocess(t *testing.T) {
+	cmd := exec.Command(bin, "Username for 'https://gitea': ")
+	cmd.Env = []string{
+		"GITSWITCH_ASKPASS=1",
+		"GITSWITCH_USER=alice",
+		"GITSWITCH_PAT=tok",
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(out)) != "alice" {
+		t.Fatalf("got %q", string(out))
+	}
+
+	cmd = exec.Command(bin, "Password for ...: ")
+	cmd.Env = []string{
+		"GITSWITCH_ASKPASS=1",
+		"GITSWITCH_USER=alice",
+		"GITSWITCH_PAT=tok",
+	}
+	out, err = cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(out)) != "tok" {
+		t.Fatalf("got %q", string(out))
+	}
+}
