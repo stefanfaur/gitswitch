@@ -1,0 +1,26 @@
+name: pubkey-drift
+on:
+  pull_request:
+    paths: [minisign.pub, install.sh]
+  push:
+    branches: [main]
+    paths: [minisign.pub, install.sh]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare pubkey in install.sh against minisign.pub
+        run: |
+          set -eu
+          [ -f install.sh ] || { echo "install.sh not yet committed; skipping"; exit 0; }
+          FILE_KEY=$(sed -n '2p' minisign.pub)
+          SCRIPT_KEY=$(grep -E '^GITSWITCH_PUBKEY=' install.sh \
+                        | sed -E "s/^GITSWITCH_PUBKEY=['\"]([^'\"]+)['\"]/\1/")
+          if [ "$FILE_KEY" != "$SCRIPT_KEY" ]; then
+            echo "::error::pubkey drift: minisign.pub != install.sh"
+            echo "minisign.pub:  $FILE_KEY"
+            echo "install.sh:    $SCRIPT_KEY"
+            exit 1
+          fi
+          echo "pubkey match: $FILE_KEY"
