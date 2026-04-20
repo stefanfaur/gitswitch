@@ -1,0 +1,140 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: linux,  arch: amd64, runner: ubuntu-latest }
+          - { os: linux,  arch: arm64, runner: ubuntu-latest }
+          - { os: darwin, arch: amd64, runner: macos-15 }
+          - { os: darwin, arch: arm64, runner: macos-15 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25' }
+      - name: Build
+        env:
+          GOOS:   ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+        run: |
+          set -eu
+          VER="${GITHUB_REF_NAME}"
+          OUT="gitswitch-${VER}-${GOOS}-${GOARCH}"
+          mkdir -p "dist/${OUT}"
+          go build -trimpath \
+            -ldflags="-s -w -X main.version=${VER}" \
+            -o "dist/${OUT}/gitswitch" ./cmd/gitswitch
+          ( cd dist && tar -czf "${OUT}.tar.gz" "${OUT}" && rm -rf "${OUT}" )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist-in }
+      - name: Flatten artifacts
+        run: |
+          mkdir -p dist
+          find dist-in -name '*.tar.gz' -exec mv {} dist/ \;
+          ls -l dist/
+      - name: Install minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Generate SHA256SUMS
+        run: ( cd dist && sha256sum gitswitch-*.tar.gz ) > dist/SHA256SUMS
+      - name: Sign SHA256SUMS
+        env:
+          MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: |
+          set -eu
+          echo "::add-mask::$MINISIGN_KEY"
+          echo "::add-mask::$MINISIGN_PASSWORD"
+          umask 077
+          KEYFILE="$RUNNER_TEMP/minisign.key"
+          printf '%s' "$MINISIGN_KEY" > "$KEYFILE"
+          printf '%s\n' "$MINISIGN_PASSWORD" \
+            | minisign -Sm dist/SHA256SUMS -s "$KEYFILE" \
+                -t "gitswitch ${GITHUB_REF_NAME}"
+          shred -u "$KEYFILE" 2>/dev/null || rm -f "$KEYFILE"
+          ls -l dist/SHA256SUMS dist/SHA256SUMS.minisig
+      - name: Copy install.sh for Release assets
+        run: cp install.sh dist/install.sh
+      - name: Compute install.sh checksum for release notes
+        id: hash
+        run: |
+          H=$(sha256sum dist/install.sh | awk '{print $1}')
+          echo "install_sh_sha256=$H" >> "$GITHUB_OUTPUT"
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "$(cat <<EOF
+          gitswitch $GITHUB_REF_NAME
+
+          install.sh sha256: \`${{ steps.hash.outputs.install_sh_sha256 }}\`
+
+          Verify a release:
+
+              minisign -Vm SHA256SUMS -P "$(sed -n 2p minisign.pub)"
+              sha256sum -c SHA256SUMS
+          EOF
+          )" \
+            dist/gitswitch-*.tar.gz \
+            dist/SHA256SUMS \
+            dist/SHA256SUMS.minisig \
+            dist/install.sh
+
+  release-verify:
+    needs: sign
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, dir: '/tmp/gs' }
+          - { runner: ubuntu-latest, dir: '' }
+          - { runner: macos-15,     dir: '/tmp/gs' }
+          - { runner: macos-15,     dir: '' }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Install minisign (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Install minisign (macOS)
+        if: runner.os == 'macOS'
+        run: brew install minisign
+      - name: Run install.sh from Release
+        env:
+          TAG: ${{ github.ref_name }}
+          INSTALL_DIR: ${{ matrix.dir }}
+        run: |
+          set -eu
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/install.sh"
+          if [ -n "$INSTALL_DIR" ]; then
+            curl -fsSL "$URL" | ASSUME_YES=1 sh
+          else
+            curl -fsSL "$URL" | ASSUME_YES=1 sh
+          fi
+      - name: Smoke test
+        env:
+          TAG: ${{ github.ref_name }}
+          DIR: ${{ matrix.dir }}
+        run: |
+          BIN="${DIR:-/usr/local/bin}/gitswitch"
+          "$BIN" --version | grep -Fx "gitswitch $TAG"
