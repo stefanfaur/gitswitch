@@ -17,10 +17,6 @@ import (
 func main() {
 	harden.Apply()
 
-	if os.Getenv("GITSWITCH_ASKPASS") == "1" {
-		os.Exit(askpass.Run(os.Args[1:], envMap(), os.Stdout))
-	}
-
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -44,6 +40,11 @@ func main() {
 	case "-h", "--help", "help":
 		usage()
 	default:
+		// Unknown first arg. If git invoked us as GIT_ASKPASS, the arg is a
+		// prompt string (e.g. "Username for 'https://...': "), not a subcommand.
+		if os.Getenv("GITSWITCH_ASKPASS") == "1" {
+			os.Exit(askpass.Run(os.Args[1:], envMap(), os.Stdout))
+		}
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", cmd)
 		usage()
 		os.Exit(2)

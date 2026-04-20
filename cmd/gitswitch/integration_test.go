@@ -138,6 +138,52 @@ func TestUseRefusesNested(t *testing.T) {
 	}
 }
 
+func TestWhoamiInsideSessionDoesNotLeakPAT(t *testing.T) {
+	cmd := exec.Command(bin, "whoami")
+	cmd.Env = []string{
+		"GITSWITCH_ASKPASS=1",
+		"GITSWITCH_USER=alice",
+		"GITSWITCH_PAT=super-secret-pat",
+		"PATH=/usr/bin:/bin",
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("whoami: %v", err)
+	}
+	s := strings.TrimSpace(string(out))
+	if s != "alice" {
+		t.Fatalf("whoami inside session: want %q, got %q", "alice", s)
+	}
+	if strings.Contains(string(out), "super-secret-pat") {
+		t.Fatalf("PAT leaked via whoami: %q", string(out))
+	}
+}
+
+func TestSubcommandsTakePrecedenceOverAskpass(t *testing.T) {
+	home := t.TempDir()
+	stdin := "A\na@x\np\nhunter2\nhunter2\n"
+	if _, _, code := run(t, home, stdin, "add", "alice"); code != 0 {
+		t.Fatal("setup")
+	}
+	cmd := exec.Command(bin, "list")
+	cmd.Env = append(os.Environ(),
+		"XDG_CONFIG_HOME="+home, "HOME="+home,
+		"GITSWITCH_ASKPASS=1",
+		"GITSWITCH_USER=alice",
+		"GITSWITCH_PAT=tok",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(string(out), "alice") {
+		t.Fatalf("expected list output, got %q", string(out))
+	}
+	if strings.Contains(string(out), "tok") {
+		t.Fatalf("PAT leaked via list: %q", string(out))
+	}
+}
+
 func TestAskpassSubprocess(t *testing.T) {
 	cmd := exec.Command(bin, "Username for 'https://gitea': ")
 	cmd.Env = []string{
