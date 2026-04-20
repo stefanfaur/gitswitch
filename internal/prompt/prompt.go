@@ -17,11 +17,12 @@ import (
 
 const maxInput = 1024
 
+var stdinReader = bufio.NewReader(os.Stdin)
+
 func ReadPassword(prompt string) (string, error) {
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
-		r := bufio.NewReader(os.Stdin)
-		line, err := r.ReadString('\n')
+		line, err := stdinReader.ReadString('\n')
 		if err != nil && line == "" {
 			return "", err
 		}
@@ -74,8 +75,7 @@ func ReadPassword(prompt string) (string, error) {
 
 func ReadLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
-	r := bufio.NewReader(os.Stdin)
-	line, err := r.ReadString('\n')
+	line, err := stdinReader.ReadString('\n')
 	if err != nil && line == "" {
 		return "", err
 	}
