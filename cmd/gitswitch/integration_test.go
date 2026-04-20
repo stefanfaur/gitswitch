@@ -184,6 +184,24 @@ func TestSubcommandsTakePrecedenceOverAskpass(t *testing.T) {
 	}
 }
 
+func TestVersionFlag(t *testing.T) {
+	for _, flag := range []string{"--version", "-V"} {
+		cmd := exec.Command(bin, flag)
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%s: %v", flag, err)
+		}
+		s := strings.TrimSpace(string(out))
+		if !strings.HasPrefix(s, "gitswitch ") {
+			t.Fatalf("%s: want prefix %q, got %q", flag, "gitswitch ", s)
+		}
+		if strings.Count(s, "\n") != 0 {
+			t.Fatalf("%s: expected single line, got %q", flag, s)
+		}
+	}
+}
+
 func TestAskpassSubprocess(t *testing.T) {
 	cmd := exec.Command(bin, "Username for 'https://gitea': ")
 	cmd.Env = []string{

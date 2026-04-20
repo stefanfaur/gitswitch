@@ -37,6 +37,8 @@ func main() {
 		fatal(cmdPasswd(args))
 	case "whoami":
 		fatal(cmdWhoami(args))
+	case "--version", "-V", "version":
+		fmt.Printf("gitswitch %s\n", version)
 	case "-h", "--help", "help":
 		usage()
 	default:
