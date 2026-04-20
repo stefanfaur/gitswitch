@@ -1,0 +1,6 @@
+/gitswitch
+/dist/
+*.test
+*.out
+coverage.*
+.DS_Store
