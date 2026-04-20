@@ -66,7 +66,7 @@ jobs:
           echo "::add-mask::$MINISIGN_PASSWORD"
           umask 077
           KEYFILE="$RUNNER_TEMP/minisign.key"
-          printf '%s' "$MINISIGN_KEY" > "$KEYFILE"
+          printf '%s\n' "$MINISIGN_KEY" > "$KEYFILE"
           printf '%s\n' "$MINISIGN_PASSWORD" \
             | minisign -Sm dist/SHA256SUMS -s "$KEYFILE" \
                 -t "gitswitch ${GITHUB_REF_NAME}"
