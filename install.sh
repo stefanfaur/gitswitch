@@ -12,8 +12,15 @@ GITSWITCH_PUBKEY="RWS7seiIU2Cg3+Av3cZoj6QXCGE8mgEoDFsHPCMCmehjaEJBJ904+BPX"
 DEFAULT_INSTALL_DIR="/usr/local/bin"
 
 #--- fd 3 for tty reads, traps ---
+# Probe /dev/tty in a subshell first: `exec` is a POSIX special built-in,
+# so a redirection failure on it terminates the shell (dash); wrapping the
+# probe in `( ... ) 2>/dev/null` contains the failure.
 tty_ok=0
-if [ -e /dev/tty ] && exec 3</dev/tty 2>/dev/null; then tty_ok=1; fi
+if [ "${ASSUME_YES:-}" != "1" ] && [ -e /dev/tty ] \
+   && ( true </dev/tty ) 2>/dev/null; then
+  exec 3</dev/tty
+  tty_ok=1
+fi
 if [ "$tty_ok" -eq 0 ] && [ "${ASSUME_YES:-}" != "1" ]; then
   echo "install.sh: no tty available; set ASSUME_YES=1 and env flags" >&2
   exit 1
@@ -176,6 +183,11 @@ printf '%s\n' "$VERIFY_OUT" | grep '^Trusted comment:' >&2 || true
 ( cd "$TMP" && tar -xzf "$TARBALL" )
 SRC="$TMP/gitswitch-${VER}-${OS}-${ARCH}/gitswitch"
 [ -x "$SRC" ] || die "tarball missing gitswitch binary"
+if [ ! -d "$INSTALL_DIR" ]; then
+  MKDIR_CMD="${SUDO_INSTALL}mkdir -p \"$INSTALL_DIR\""
+  echo ">>> $MKDIR_CMD" >&2
+  sh -c "$MKDIR_CMD" || die "failed to create $INSTALL_DIR"
+fi
 CMD="${SUDO_INSTALL}install -m 0755 \"$SRC\" \"$INSTALL_DIR/gitswitch\""
 echo ">>> $CMD" >&2
 sh -c "$CMD" || die "install failed"
